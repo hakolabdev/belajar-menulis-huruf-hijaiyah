@@ -1,18 +1,18 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-[CreateAssetMenu(menuName = "Hijaiyah/Letter", fileName = "New Hijaiyah Letter")]
-public class HijaiyahLetter : ScriptableObject
+[CreateAssetMenu(fileName = "HijaiyahLevel", menuName = "Hijaiyah/Level Data", order = 1)]
+public class HijaiyahLevelData : ScriptableObject
 {
-    [Header("Meta")]
+    [Header("Meta Data")]
     public string letterName = "Alif";
 
     [Header("Visual")]
     public Sprite guideSprite;
 
     [Header("Audio")]
-    public AudioClip sound; 
+    public AudioClip sound;
 
-    [Header("Strokes (urutan penting)")]
+    [Header("Stroke Data")]
     public List<Stroke> strokes = new List<Stroke>();
 }
