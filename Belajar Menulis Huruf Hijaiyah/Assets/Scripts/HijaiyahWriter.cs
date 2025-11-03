@@ -1,83 +1,148 @@
 ﻿using System;
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 public class HijaiyahWriter : MonoBehaviour
 {
     [Header("Ref")]
-    [SerializeField]
-    LevelList levelList;
+    [SerializeField] private LevelList levelList;
 
     [Header("Panel")]
-    [SerializeField]
-    GameObject finishPanel;
-    [SerializeField]
-    GameObject pausePanel;
+    [SerializeField] private GameObject finishPanel;
 
     [Header("Button")]
-    [SerializeField]
-    Button nextLevelButton;
-    [SerializeField]
-    Button mainMenuButton;
+    [SerializeField] private Button nextLevelButton;
+    [SerializeField] private Button mainMenuButton;
 
     [Header("Painter / Mask")]
     public BrushPainter painter;
     public SpriteRenderer guideSprite;
 
-    [Header("Level Data For Create/Edit (ScriptableObject)")]
-    public HijaiyahLevelData levelData;
-    public float minMove = 0.01f;
+    [Header("Level Settings")]
+    [SerializeField] private float minMove = 0.01f;
     [Range(0.01f, 0.5f)] public float progressSnap = 0.12f;
 
+    // ===== Stroke Step UI =====
+    [Header("Stroke Hints UI")]
+    [Tooltip("Teks langkah, mis. `Langkah 1/3`")]
+    [SerializeField] private TextMeshProUGUI stepText;
+    [SerializeField] private TextMeshProUGUI namaHurufText;
+    [Tooltip("LineRenderer untuk garis hint jalur stroke")]
+    [SerializeField] private LineRenderer pathHint;
+
+    public enum StrokeSpace { World, GuideLocalUnits, GuideSpritePixels }
+    [Header("Stroke Coord Space")]
+    [SerializeField] private StrokeSpace strokeSpace = StrokeSpace.GuideLocalUnits;
+
+    [Tooltip("Marker bulat start (LineRenderer)")]
+    [SerializeField] private LineRenderer startMarkerRing;
+    [Tooltip("Marker bulat end (LineRenderer)")]
+    [SerializeField] private LineRenderer endMarkerRing;
+
+    [SerializeField] private int ringSegments = 32;
+    [Tooltip("Fade hint saat lagi menggambar")]
+    [SerializeField] private float hintAlphaWhileDrawing = 0.25f;
+
     // ===== Runtime state =====
-    int currentStrokeIdx = 0;
-    bool drawing;
-    int furthestSegment;
-    Camera cam;
-    Vector3 lastValidWorld;
-    bool lastInside;
-    readonly List<Vector3> drawn = new();
-    bool completionLatched = false;
+    private HijaiyahLevelData currentLevelData;
+    private HijaiyahLevelData[] hijaiyahLevels;
+
+    private int currentStrokeIdx = 0;
+    private bool drawing;
+    private int furthestSegment;
+    private Camera cam;
+    private Vector3 lastValidWorld;
+    private readonly List<Vector3> drawn = new();
+    private bool completionLatched = false;
 
     void Awake()
     {
         cam = Camera.main;
-        finishPanel.SetActive(false);
     }
 
-    void OnEnable()
+    void Start()
     {
-        if (levelData != null) ApplyLevelData();
+        finishPanel.SetActive(false);
+
+        if (levelList == null || levelList.levels == null || levelList.levels.Length == 0)
+        {
+            Debug.LogError("[HijaiyahWriter] LevelList belum di-assign atau kosong!");
+            return;
+        }
+
+        hijaiyahLevels = levelList.levels;
+
+        int selectedLevel = PlayerPrefs.GetInt("Level", 0);
+        selectedLevel = Mathf.Clamp(selectedLevel, 0, hijaiyahLevels.Length - 1);
+
+        currentLevelData = hijaiyahLevels[selectedLevel];
+        ApplyLevelData();
+
+        if (nextLevelButton) nextLevelButton.onClick.AddListener(NextLevel);
+        if (mainMenuButton) mainMenuButton.onClick.AddListener(MainMenu);
+    }
+
+    private void MainMenu()
+    {
+        SFXManager.Instance.PlaySFX(SFXManager.Instance.audioButtonPositive);
+        Time.timeScale = 1f;
+        SceneManager.LoadScene("MainMenu");
+    }
+
+    private void NextLevel()
+    {
+        SFXManager.Instance.PlaySFX(SFXManager.Instance.audioButtonPositive);
+        int currentLevel = PlayerPrefs.GetInt("Level", 0);
+        int nextLevel = currentLevel + 1;
+        int maxLevel = hijaiyahLevels.Length - 1;
+
+        if (nextLevel > maxLevel)
+        {
+            SceneManager.LoadScene("MainMenu");
+        }
+        else
+        {
+            PlayerPrefs.SetInt("Level", nextLevel);
+            PlayerPrefs.Save();
+            SceneManager.LoadScene("Game");
+        }
     }
 
     void ApplyLevelData()
     {
-        if (levelData == null)
+        if (currentLevelData == null)
         {
-            Debug.LogWarning("[HijaiyahWriter] levelData NULL saat ApplyLevelData");
+            Debug.LogWarning("[HijaiyahWriter] currentLevelData NULL saat ApplyLevelData");
             return;
         }
 
         ResetRuntime();
 
-        // apply guide sprite
-        if (guideSprite && levelData.guideSprite)
+        SFXManager.Instance.PlaySFX(currentLevelData.sound);
+        
+        namaHurufText.text = currentLevelData.letterName;
+
+        if (guideSprite && currentLevelData.guideSprite)
         {
-            guideSprite.sprite = levelData.guideSprite;
-            guideSprite.GetComponent<SpriteMask>().sprite = levelData.guideSprite;
+            guideSprite.sprite = currentLevelData.guideSprite;
+            var mask = guideSprite.GetComponent<SpriteMask>();
+            if (mask) mask.sprite = currentLevelData.guideSprite;
         }
 
-        // sinkron ke painter & bersihkan tinta lama
         if (painter)
         {
             if (!painter.guideSprite && guideSprite)
                 painter.guideSprite = guideSprite;
-            painter.CancelStroke(); // bersih sebelum mulai level baru
+            painter.CancelStroke();
         }
 
-        if (levelData.sound)
-            AudioSource.PlayClipAtPoint(levelData.sound, Vector3.zero);
+        if (currentLevelData.sound)
+            AudioSource.PlayClipAtPoint(currentLevelData.sound, Vector3.zero);
+
+        UpdateStrokeHintsUI();
     }
 
     void ResetRuntime()
@@ -87,15 +152,14 @@ public class HijaiyahWriter : MonoBehaviour
         furthestSegment = 0;
         completionLatched = false;
         drawn.Clear();
-        lastInside = false;
     }
 
     void Update()
     {
-        if (levelData == null || levelData.strokes == null || currentStrokeIdx >= levelData.strokes.Count)
+        if (currentLevelData == null || currentLevelData.strokes == null || currentStrokeIdx >= currentLevelData.strokes.Count)
             return;
 
-        var stroke = levelData.strokes[currentStrokeIdx];
+        var stroke = currentLevelData.strokes[currentStrokeIdx];
 
 #if UNITY_EDITOR
         bool pressed = Input.GetMouseButton(0);
@@ -114,7 +178,6 @@ public class HijaiyahWriter : MonoBehaviour
         {
             if (!drawing)
             {
-                // wajib mulai dari start radius
                 if (stroke.points.Count >= 2 &&
                     Vector2.Distance(world, stroke.points[0]) <= stroke.startRadius)
                 {
@@ -132,38 +195,24 @@ public class HijaiyahWriter : MonoBehaviour
                         lastValidWorld = world;
                         if (painter) painter.Paint(world);
                         if (furthestSegment < segAdvanced) furthestSegment = segAdvanced;
+
+                        bool tailReached = furthestSegment >= stroke.points.Count - 2;
+                        if (tailReached) completionLatched = true;
+
                         drawn.Add(world);
-
-                        // kalau segmen terakhir sudah terlewati ATAU udah masuk endRadius → kunci selesai
-                        if (!completionLatched)
-                        {
-                            bool tailPassed = furthestSegment < segAdvanced; // naik segmen
-                            bool endNearNow = Vector2.Distance(world, stroke.points[^1]) <= stroke.endRadius;
-                            if (tailPassed || endNearNow)
-                                completionLatched = true;
-                        }
                     }
-                    else
-                    {
-                        // keluar koridor → gak dicat
-                        if (lastInside)
-                        {
-                            //play suara
-                        }
-                    }
-
-                    lastInside = inside;
                 }
             }
         }
-        else
+        else if (drawing)
         {
-            if (drawing)
-                EndDraw(stroke);
+            EndDraw(stroke);
         }
+
+        if (!drawing) ApplyHintVisualAlpha(1f);
+        UpdateHintTransformsOnly();
     }
 
-    // ====== Core flow ======
     void BeginDraw(Vector3 start)
     {
         drawing = true;
@@ -171,15 +220,15 @@ public class HijaiyahWriter : MonoBehaviour
         completionLatched = false;
         drawn.Clear();
         lastValidWorld = start;
-        lastInside = true;
 
-        // mulai "tinta"
         if (painter)
         {
             if (!painter.guideSprite && guideSprite) painter.guideSprite = guideSprite;
             painter.BeginStroke();
             painter.Paint(start);
         }
+
+        ApplyHintVisualAlpha(hintAlphaWhileDrawing);
     }
 
     void EndDraw(Stroke stroke)
@@ -187,27 +236,32 @@ public class HijaiyahWriter : MonoBehaviour
         drawing = false;
         bool endNear = Vector2.Distance(lastValidWorld, stroke.points[^1]) <= stroke.endRadius;
         bool reachedTail = furthestSegment >= stroke.points.Count - 2;
-
-        bool completed = (endNear && reachedTail) || completionLatched;
+        bool completed = endNear && reachedTail;
 
         if (completed)
         {
             if (painter) painter.EndStroke();
-            //play suara segaris berhasil
             currentStrokeIdx++;
-            if (currentStrokeIdx >= levelData.strokes.Count)
+
+            if (currentStrokeIdx >= currentLevelData.strokes.Count)
             {
+                SFXManager.Instance.PlaySFX(SFXManager.Instance.audioVictory);
                 finishPanel.SetActive(true);
-                //nextLevelButton.onClick.AddListener();
+                ToggleHints(false);
+            }
+            else
+            {
+                UpdateStrokeHintsUI();
+                ApplyHintVisualAlpha(1f);
             }
         }
         else
         {
             if (painter) painter.CancelStroke();
+            ApplyHintVisualAlpha(1f);
         }
     }
 
-    // ====== Geometry / Validation ======
     bool IsInsideCorridor(Stroke stroke, Vector2 p, out int segAdvanced)
     {
         segAdvanced = furthestSegment;
@@ -219,7 +273,6 @@ public class HijaiyahWriter : MonoBehaviour
             Vector2 b = stroke.points[i + 1];
             float d = DistancePointToSegment(p, a, b, out float t);
 
-            // progres maju hanya di segmen aktif (berurutan)
             if (i == furthestSegment && d <= stroke.tolerance && t >= progressSnap)
                 segAdvanced = i + 1;
 
@@ -236,5 +289,174 @@ public class HijaiyahWriter : MonoBehaviour
         t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab2);
         Vector2 proj = a + t * ab;
         return Vector2.Distance(p, proj);
+    }
+
+    // ================== HINTS (Step UI) ==================
+
+    void UpdateStrokeHintsUI()
+    {
+        if (currentLevelData == null || currentLevelData.strokes == null) { ToggleHints(false); return; }
+        if (currentStrokeIdx < 0 || currentStrokeIdx >= currentLevelData.strokes.Count) { ToggleHints(false); return; }
+
+        ToggleHints(true);
+
+        var stroke = currentLevelData.strokes[currentStrokeIdx];
+
+        if (stepText)
+            stepText.text = $"Langkah {currentStrokeIdx + 1}/{currentLevelData.strokes.Count}";
+
+        // Path hint (rounded)
+        if (pathHint)
+        {
+            pathHint.useWorldSpace = true;
+            pathHint.numCornerVertices = 8;
+            pathHint.numCapVertices = 8;
+            pathHint.positionCount = stroke.points.Count;
+            for (int i = 0; i < stroke.points.Count; i++)
+                pathHint.SetPosition(i, StrokePointToWorld(stroke.points[i]));
+            pathHint.enabled = true;
+        }
+
+        // Marker ring di start/end (radius pakai corridor radius di world)
+        Vector3 wStart = StrokePointToWorld(stroke.points[0]);
+        Vector3 wEnd = StrokePointToWorld(stroke.points[^1]);
+        float rStart = CorridorRadiusWorld(stroke.startRadius);
+        float rEnd = CorridorRadiusWorld(stroke.endRadius);
+
+        DrawRing(startMarkerRing, wStart, rStart);
+        DrawRing(endMarkerRing, wEnd, rEnd);
+    }
+
+    void UpdateHintTransformsOnly()
+    {
+        if (currentLevelData == null || currentLevelData.strokes == null) return;
+        if (currentStrokeIdx < 0 || currentStrokeIdx >= currentLevelData.strokes.Count) return;
+
+        var stroke = currentLevelData.strokes[currentStrokeIdx];
+
+        if (pathHint && pathHint.enabled && pathHint.positionCount == stroke.points.Count)
+        {
+            for (int i = 0; i < stroke.points.Count; i++)
+                pathHint.SetPosition(i, StrokePointToWorld(stroke.points[i]));
+        }
+
+        Vector3 wStart = StrokePointToWorld(stroke.points[0]);
+        Vector3 wEnd = StrokePointToWorld(stroke.points[^1]);
+        float rStart = CorridorRadiusWorld(stroke.startRadius);
+        float rEnd = CorridorRadiusWorld(stroke.endRadius);
+        DrawRing(startMarkerRing, wStart, rStart);
+        DrawRing(endMarkerRing, wEnd, rEnd);
+    }
+
+    Vector3 StrokePointToWorld(Vector2 p)
+    {
+        if (strokeSpace == StrokeSpace.World)
+            return new Vector3(p.x, p.y, 0f);
+
+        if (!guideSprite)
+            return new Vector3(p.x, p.y, 0f);
+
+        if (strokeSpace == StrokeSpace.GuideLocalUnits)
+        {
+            return guideSprite.transform.TransformPoint(new Vector3(p.x, p.y, 0f));
+        }
+
+        // GuideSpritePixels
+        var sp = guideSprite.sprite;
+        if (!sp) return new Vector3(p.x, p.y, 0f);
+
+        Vector2 pivotPx = sp.pivot;               // pixel
+        float ppu = sp.pixelsPerUnit;             // pixel per unit
+        Vector2 localUnits = (p - pivotPx) / ppu; // pixel -> local (unit)
+        return guideSprite.transform.TransformPoint(new Vector3(localUnits.x, localUnits.y, 0f));
+    }
+
+    void DrawRing(LineRenderer lr, Vector3 center, float radius)
+    {
+        if (!lr) return;
+        lr.useWorldSpace = true;
+        lr.numCornerVertices = 8;
+        lr.numCapVertices = 8;
+        int seg = Mathf.Max(8, ringSegments);
+        lr.positionCount = seg + 1;
+        for (int i = 0; i <= seg; i++)
+        {
+            float t = (i / (float)seg) * Mathf.PI * 2f;
+            float x = Mathf.Cos(t) * radius;
+            float y = Mathf.Sin(t) * radius;
+            lr.SetPosition(i, center + new Vector3(x, y, 0f));
+        }
+        lr.enabled = true;
+    }
+
+    float CorridorRadiusWorld(float r)
+    {
+        switch (strokeSpace)
+        {
+            case StrokeSpace.World:
+                return r;
+            case StrokeSpace.GuideLocalUnits:
+                {
+                    if (!guideSprite) return r;
+                    var s = guideSprite.transform.lossyScale;
+                    return r * ((Mathf.Abs(s.x) + Mathf.Abs(s.y)) * 0.5f);
+                }
+            case StrokeSpace.GuideSpritePixels:
+                {
+                    if (!guideSprite || !guideSprite.sprite) return r;
+                    float ppu = guideSprite.sprite.pixelsPerUnit;
+                    var s = guideSprite.transform.lossyScale;
+                    float localUnits = r / ppu;
+                    return localUnits * ((Mathf.Abs(s.x) + Mathf.Abs(s.y)) * 0.5f);
+                }
+            default:
+                return r;
+        }
+    }
+
+    void ApplyHintVisualAlpha(float a)
+    {
+        if (pathHint)
+        {
+#if UNITY_2022_1_OR_NEWER
+            var c = pathHint.startColor; 
+            c.a = a; 
+            pathHint.startColor = c;
+            c = pathHint.endColor; 
+            c.a = a; 
+            pathHint.endColor = c;
+#else
+            var grad = pathHint.colorGradient;
+            var keys = grad.alphaKeys;
+            for (int i = 0; i < keys.Length; i++) { keys[i].alpha = a; }
+            grad.alphaKeys = keys;
+            pathHint.colorGradient = grad;
+#endif
+        }
+        SetLRAlpha(startMarkerRing, a);
+        SetLRAlpha(endMarkerRing, a);
+    }
+
+    void SetLRAlpha(LineRenderer lr, float a)
+    {
+        if (!lr) return;
+#if UNITY_2022_1_OR_NEWER
+        var c = lr.startColor; c.a = a; lr.startColor = c;
+        c = lr.endColor; c.a = a; lr.endColor = c;
+#else
+        var grad = lr.colorGradient;
+        var keys = grad.alphaKeys;
+        for (int i = 0; i < keys.Length; i++) { keys[i].alpha = a; }
+        grad.alphaKeys = keys;
+        lr.colorGradient = grad;
+#endif
+    }
+
+    void ToggleHints(bool on)
+    {
+        if (stepText) stepText.enabled = on;
+        if (pathHint) pathHint.enabled = on;
+        if (startMarkerRing) startMarkerRing.gameObject.SetActive(on);
+        if (endMarkerRing) endMarkerRing.gameObject.SetActive(on);
     }
 }

@@ -1,0 +1,49 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0a6e1278db0464e4cb3e708869c1b767, type: 3}
+  m_Name: 30. Ya
+  m_EditorClassIdentifier: 
+  letterName: Ya
+  guideSprite: {fileID: 21300000, guid: 71bca457445a5564e90b09ff96aef026, type: 3}
+  sound: {fileID: 8300000, guid: 6e2334bde0122fa4eb83a22b7b1a2de3, type: 3}
+  strokes:
+  - name: stroke-0
+    points:
+    - {x: 1.6, y: 1.7}
+    - {x: 1, y: 1.6}
+    - {x: 0.5, y: 1.2}
+    - {x: 0.2, y: 0.6}
+    - {x: 0.7, y: 0.3}
+    - {x: 1.4, y: 0.1}
+    - {x: 1.4, y: -0.2}
+    - {x: 0.6, y: -0.7}
+    - {x: -0.7, y: -1}
+    - {x: -1.4, y: -0.7}
+    - {x: -1.7, y: 0}
+    - {x: -1.4, y: 0.7}
+    tolerance: 0.35
+    startRadius: 0.4
+    endRadius: 0.4
+  - name: stroke-1
+    points:
+    - {x: -0.6, y: -1.8000001}
+    - {x: -0.5, y: -1.8000001}
+    tolerance: 0.35
+    startRadius: 0.4
+    endRadius: 0.4
+  - name: stroke-2
+    points:
+    - {x: -0, y: -1.7}
+    - {x: 0.1, y: -1.7}
+    tolerance: 0.35
+    startRadius: 0.4
+    endRadius: 0.4

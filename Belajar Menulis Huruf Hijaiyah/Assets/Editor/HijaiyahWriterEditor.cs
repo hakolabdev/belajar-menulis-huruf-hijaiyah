@@ -17,8 +17,52 @@ public class HijaiyahWriterEditor : Editor
     HijaiyahLevelData _lastLevelRef;
     Sprite _lastAppliedGuide;
 
-    HijaiyahLevelData Level => T != null ? T.levelData : null;
+    // editor-only preview index (disimpan di EditorPrefs biar gak nambah field di component)
+    const string kPreviewKey = "HW_EditorPreviewIndex";
 
+    // ======== Level Resolver (Editor) ========
+    HijaiyahLevelData Level
+    {
+        get
+        {
+            if (T == null || T == null) return null;
+            var levelListField = serializedObject.FindProperty("levelList");
+            if (levelListField == null || levelListField.objectReferenceValue == null) return null;
+
+            var levelList = (LevelList)levelListField.objectReferenceValue;
+            if (levelList.levels == null || levelList.levels.Length == 0) return null;
+
+            // ambil index preview dari EditorPrefs; default = PlayerPrefs("Level")
+            int def = Mathf.Clamp(PlayerPrefs.GetInt("Level", 0), 0, levelList.levels.Length - 1);
+            int idx = EditorPrefs.GetInt(kPreviewKey, def);
+            idx = Mathf.Clamp(idx, 0, levelList.levels.Length - 1);
+
+            return levelList.levels[idx];
+        }
+    }
+
+    int GetPreviewIndex(out int max)
+    {
+        max = 0;
+        var levelListField = serializedObject.FindProperty("levelList");
+        if (levelListField == null || levelListField.objectReferenceValue == null) return 0;
+        var levelList = (LevelList)levelListField.objectReferenceValue;
+        if (levelList.levels == null) return 0;
+        max = Mathf.Max(0, levelList.levels.Length - 1);
+
+        int def = Mathf.Clamp(PlayerPrefs.GetInt("Level", 0), 0, max);
+        return Mathf.Clamp(EditorPrefs.GetInt(kPreviewKey, def), 0, max);
+    }
+
+    void SetPreviewIndex(int idx)
+    {
+        EditorPrefs.SetInt(kPreviewKey, Mathf.Max(0, idx));
+        ApplyLevelVisuals(true);
+        Repaint();
+        SceneView.RepaintAll();
+    }
+
+    // ======== Unity Editor Hooks ========
     void OnEnable()
     {
         T = (HijaiyahWriter)target;
@@ -44,7 +88,6 @@ public class HijaiyahWriterEditor : Editor
     {
         if (EditorApplication.isPlaying) return;
         ApplyLevelVisuals();
-        // repaint scene saat rekam biar garis preview responsif
         if (recording) SceneView.RepaintAll();
     }
 
@@ -55,7 +98,7 @@ public class HijaiyahWriterEditor : Editor
         if (T == null) return;
 
         var sr = T.guideSprite;
-        var lvl = T.levelData;
+        var lvl = Level; // <<== pakai Level hasil resolve
         var targetSprite = lvl != null ? lvl.guideSprite : null;
 
         if (sr == null)
@@ -75,6 +118,8 @@ public class HijaiyahWriterEditor : Editor
 
         Undo.RecordObject(sr, "Apply Guide Sprite");
         sr.sprite = targetSprite;
+        var mask = sr.GetComponent<SpriteMask>();
+        if (mask) mask.sprite = targetSprite;
         EditorUtility.SetDirty(sr);
 
         _lastLevelRef = lvl;
@@ -87,41 +132,90 @@ public class HijaiyahWriterEditor : Editor
     // === INSPECTOR ===
     public override void OnInspectorGUI()
     {
-        // deteksi perubahan field bawaan (levelData, painter, guideSprite, dll)
+        // tampilkan inspector default (tanpa field levelData, karena udah dihapus di runtime)
         EditorGUI.BeginChangeCheck();
         DrawDefaultInspector();
         if (EditorGUI.EndChangeCheck())
             ApplyLevelVisuals(true);
 
-        if (GUILayout.Button("Refresh Guide From Level Data"))
-            ApplyLevelVisuals(true);
-
-        EditorGUILayout.Space(10);
-        EditorGUILayout.LabelField("=== Stroke Recorder (Level Data) ===", EditorStyles.boldLabel);
-
-        // pastikan ada level
-        if (Level == null)
+        // ===== Preview picker (LevelList based) =====
+        var levelListProp = serializedObject.FindProperty("levelList");
+        if (levelListProp == null || levelListProp.objectReferenceValue == null)
         {
-            EditorGUILayout.HelpBox("Level Data belum di-assign. Buat/assign HijaiyahLevelData untuk mulai.", MessageType.Warning);
-            if (GUILayout.Button("Create New Level Data (ScriptableObject)"))
+            EditorGUILayout.HelpBox("Assign LevelList di atas untuk mulai edit level.", MessageType.Info);
+            return;
+        }
+
+        var levelList = (LevelList)levelListProp.objectReferenceValue;
+        int max;
+        int cur = GetPreviewIndex(out max);
+
+        using (new EditorGUI.DisabledScope(levelList.levels == null || levelList.levels.Length == 0))
+        {
+            EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField("=== Level Preview ===", EditorStyles.boldLabel);
+
+            var names = (levelList.levels == null || levelList.levels.Length == 0)
+                ? new[] { "(no levels)" }
+                : levelList.levels.Select((x, i) => x ? $"{i:00} - {x.name}" : $"{i:00} - (null)").ToArray();
+
+            int newIdx = EditorGUILayout.Popup("Preview Level", cur, names);
+            if (newIdx != cur) SetPreviewIndex(newIdx);
+
+            if (GUILayout.Button("Refresh Guide From Level"))
+                ApplyLevelVisuals(true);
+
+            // tombol buat nambah level baru ke LevelList
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Create New Level (SO)"))
             {
                 var asset = ScriptableObject.CreateInstance<HijaiyahLevelData>();
                 string path = EditorUtility.SaveFilePanelInProject(
                     "Save Hijaiyah Level",
                     "HijaiyahLevel",
                     "asset",
-                    "Pilih lokasi untuk menyimpan HijaiyahLevelData"
+                    "Pilih lokasi menyimpan HijaiyahLevelData"
                 );
                 if (!string.IsNullOrEmpty(path))
                 {
                     AssetDatabase.CreateAsset(asset, path);
                     AssetDatabase.SaveAssets();
-                    Undo.RecordObject(T, "Assign Level Data");
-                    T.levelData = asset;
-                    EditorUtility.SetDirty(T);
-                    ApplyLevelVisuals(true);
+
+                    Undo.RecordObject(levelList, "Add Level To LevelList");
+                    var list = new List<HijaiyahLevelData>(levelList.levels ?? new HijaiyahLevelData[0]);
+                    list.Add(asset);
+                    levelList.levels = list.ToArray();
+                    EditorUtility.SetDirty(levelList);
+
+                    // auto select level baru
+                    SetPreviewIndex((levelList.levels?.Length ?? 1) - 1);
                 }
             }
+            if (GUILayout.Button("Remove Preview Level"))
+            {
+                if (levelList.levels != null && levelList.levels.Length > 0 && cur < levelList.levels.Length)
+                {
+                    if (EditorUtility.DisplayDialog("Remove Level",
+                        $"Hapus level index {cur} dari LevelList? (asset tidak dihapus)", "Remove", "Cancel"))
+                    {
+                        Undo.RecordObject(levelList, "Remove Level From LevelList");
+                        var list = new List<HijaiyahLevelData>(levelList.levels);
+                        list.RemoveAt(cur);
+                        levelList.levels = list.ToArray();
+                        EditorUtility.SetDirty(levelList);
+                        SetPreviewIndex(Mathf.Clamp(cur - 1, 0, (levelList.levels?.Length ?? 1) - 1));
+                    }
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+        }
+
+        EditorGUILayout.Space(10);
+        EditorGUILayout.LabelField("=== Stroke Recorder (Active Level) ===", EditorStyles.boldLabel);
+
+        if (Level == null)
+        {
+            EditorGUILayout.HelpBox("Level aktif NULL. Pilih LevelList & Preview Level yang valid.", MessageType.Warning);
             return;
         }
 
@@ -134,46 +228,19 @@ public class HijaiyahWriterEditor : Editor
         }
 
         // === Dropdown pilih stroke aktif ===
-        var names = GetStrokeNames(Level.strokes);
+        var strokeNames = GetStrokeNames(Level.strokes);
         EnsureIndexValid(Level.strokes.Count);
 
         EditorGUILayout.BeginHorizontal();
         EditorGUILayout.LabelField("Active Stroke", GUILayout.Width(100));
-        int newIdx = EditorGUILayout.Popup(strokeIndex, names);
-        if (newIdx != strokeIndex)
+        int newStrokeIdx = EditorGUILayout.Popup(strokeIndex, strokeNames);
+        if (newStrokeIdx != strokeIndex)
         {
-            strokeIndex = newIdx;
+            strokeIndex = newStrokeIdx;
             Repaint();
             SceneView.RepaintAll();
         }
-        if (GUILayout.Button("Rename", GUILayout.Width(70)))
-        {
-            if (ValidStroke())
-            {
-                string newName = EditorUtility.DisplayDialogComplex("Rename Stroke",
-                    "Ganti nama stroke?", "OK", "Cancel", "") == 0
-                    ? EditorUtility.DisplayDialog("Tip", "Nama ganti via text field di bawah.", "OK").ToString()
-                    : null;
-            }
-        }
-        EditorGUILayout.EndHorizontal();
-
-        // Nama langsung editable
-        if (ValidStroke())
-        {
-            var s = Level.strokes[strokeIndex];
-            string newName = EditorGUILayout.TextField("Stroke Name", s.name);
-            if (newName != s.name)
-            {
-                Undo.RecordObject(Level, "Rename Stroke");
-                s.name = string.IsNullOrWhiteSpace(newName) ? s.name : newName;
-                EditorUtility.SetDirty(Level);
-            }
-        }
-
-        // Tombol-manage (Tambah, Duplikat, Hapus, Naik/Turun)
-        EditorGUILayout.BeginHorizontal();
-        if (GUILayout.Button("New"))
+        if (GUILayout.Button("New", GUILayout.Width(60)))
         {
             Undo.RecordObject(Level, "New Stroke");
             Level.strokes.Add(new Stroke() { name = $"stroke-{Level.strokes.Count}" });
@@ -182,7 +249,7 @@ public class HijaiyahWriterEditor : Editor
         }
         using (new EditorGUI.DisabledScope(!ValidStroke()))
         {
-            if (GUILayout.Button("Duplicate"))
+            if (GUILayout.Button("Duplicate", GUILayout.Width(80)))
             {
                 var s = Level.strokes[strokeIndex];
                 Undo.RecordObject(Level, "Duplicate Stroke");
@@ -198,7 +265,7 @@ public class HijaiyahWriterEditor : Editor
                 strokeIndex++;
                 EditorUtility.SetDirty(Level);
             }
-            if (GUILayout.Button("Delete"))
+            if (GUILayout.Button("Delete", GUILayout.Width(70)))
             {
                 if (EditorUtility.DisplayDialog("Delete Stroke", "Yakin hapus stroke ini?", "Delete", "Cancel"))
                 {
@@ -208,34 +275,28 @@ public class HijaiyahWriterEditor : Editor
                     EditorUtility.SetDirty(Level);
                 }
             }
-            if (GUILayout.Button("Up"))
-            {
-                if (strokeIndex > 0)
-                {
-                    Undo.RecordObject(Level, "Move Stroke Up");
-                    var s = Level.strokes[strokeIndex];
-                    Level.strokes.RemoveAt(strokeIndex);
-                    strokeIndex--;
-                    Level.strokes.Insert(strokeIndex, s);
-                    EditorUtility.SetDirty(Level);
-                }
-            }
-            if (GUILayout.Button("Down"))
-            {
-                if (strokeIndex < Level.strokes.Count - 1)
-                {
-                    Undo.RecordObject(Level, "Move Stroke Down");
-                    var s = Level.strokes[strokeIndex];
-                    Level.strokes.RemoveAt(strokeIndex);
-                    strokeIndex++;
-                    Level.strokes.Insert(strokeIndex, s);
-                    EditorUtility.SetDirty(Level);
-                }
-            }
         }
         EditorGUILayout.EndHorizontal();
 
-        // Grid snap & record toggle
+        // Nama stroke + properti
+        if (ValidStroke())
+        {
+            var s = Level.strokes[strokeIndex];
+            string newName = EditorGUILayout.TextField("Stroke Name", s.name);
+            if (newName != s.name)
+            {
+                Undo.RecordObject(Level, "Rename Stroke");
+                s.name = string.IsNullOrWhiteSpace(newName) ? s.name : newName;
+                EditorUtility.SetDirty(Level);
+            }
+
+            s.tolerance = EditorGUILayout.Slider("Tolerance", s.tolerance, 0.05f, 2f);
+            s.startRadius = EditorGUILayout.Slider("Start Radius", s.startRadius, 0.05f, 2f);
+            s.endRadius = EditorGUILayout.Slider("End Radius", s.endRadius, 0.05f, 2f);
+            EditorGUILayout.LabelField($"Points: {s.points.Count}");
+        }
+
+        // Rekam titik
         gridSnap = EditorGUILayout.FloatField("Grid Snap (world)", gridSnap);
         EditorGUILayout.BeginHorizontal();
         var btnLabel = recording ? "Stop Recording" : "Start Recording";
@@ -275,23 +336,12 @@ public class HijaiyahWriterEditor : Editor
         }
         EditorGUILayout.EndHorizontal();
 
-        // Properti stroke aktif
-        if (ValidStroke())
-        {
-            var s = Level.strokes[strokeIndex];
-            s.tolerance = EditorGUILayout.Slider("Tolerance", s.tolerance, 0.05f, 2f);
-            s.startRadius = EditorGUILayout.Slider("Start Radius", s.startRadius, 0.05f, 2f);
-            s.endRadius = EditorGUILayout.Slider("End Radius", s.endRadius, 0.05f, 2f);
-            EditorGUILayout.LabelField($"Points: {s.points.Count}");
-        }
-
         EditorGUILayout.Space(6);
         EditorGUILayout.HelpBox(
             "Tips:\n" +
-            "- Semua stroke divisualisasikan di Scene. Stroke aktif di-highlight.\n" +
-            "- Klik Start Recording lalu KLIK di Scene View (plane z=0) untuk nambah titik.\n" +
-            "- Shift+Klik = stop recording.  Backspace = undo titik terakhir.\n" +
-            "- Rename langsung dari field 'Stroke Name'. Dropdown untuk pilih stroke aktif.",
+            "- Pilih LevelList & Preview Level untuk edit.\n" +
+            "- Start Recording lalu klik di Scene View (plane z=0) untuk nambah titik.\n" +
+            "- Shift+Click = stop recording. Backspace = undo titik.\n",
             MessageType.Info
         );
     }
@@ -301,18 +351,15 @@ public class HijaiyahWriterEditor : Editor
     {
         if (Level == null || Level.strokes == null) return;
 
-        // gambar semua stroke: non-aktif abu transparan, aktif bold
         for (int i = 0; i < Level.strokes.Count; i++)
             DrawStrokeGizmos(Level.strokes[i], i == strokeIndex);
 
-        // interaksi rekam untuk stroke aktif
         if (!recording || !ValidStroke()) return;
         if (Selection.activeGameObject != ((HijaiyahWriter)target).gameObject) return;
 
         Event e = Event.current;
         if (e == null) return;
 
-        // ambil kontrol input
         if (e.type == EventType.Layout)
             HandleUtility.AddDefaultControl(GUIUtility.GetControlID(FocusType.Passive));
 
@@ -344,11 +391,10 @@ public class HijaiyahWriterEditor : Editor
             return;
         }
 
-        // Click kiri = tambah titik ke stroke aktif
+        // Click kiri = tambah titik
         if (e.type == EventType.MouseDown && e.button == 0)
         {
             AddPoint(p);
-            Debug.Log($"[Stroke {strokeIndex}] + point {p}");
             e.Use();
         }
 
@@ -364,12 +410,10 @@ public class HijaiyahWriterEditor : Editor
     {
         if (s == null) return;
 
-        // warna & ketebalan
         Color lineCol = isActive ? new Color(0f, 0f, 0f, 0.95f) : new Color(0f, 0f, 0f, 0.35f);
         Color startCol = isActive ? Color.green : new Color(0.2f, 0.6f, 0.2f, 0.5f);
         Color endCol = isActive ? new Color(0f, 0.5f, 1f, 1f) : new Color(0f, 0.5f, 1f, 0.5f);
 
-        // garis
         Handles.color = lineCol;
         for (int i = 0; i < s.points.Count - 1; i++)
         {
@@ -378,7 +422,6 @@ public class HijaiyahWriterEditor : Editor
             Handles.DrawLine(new Vector3(a.x, a.y, 0), new Vector3(b.x, b.y, 0));
         }
 
-        // titik start/end
         if (s.points.Count > 0)
         {
             Handles.color = startCol;
@@ -389,7 +432,6 @@ public class HijaiyahWriterEditor : Editor
             Handles.DrawSolidDisc(new Vector3(last.x, last.y, 0), Vector3.forward, 0.055f);
         }
 
-        // titik per point (non-aktif: kecil & tipis)
         if (s.points != null && s.points.Count > 0)
         {
             Handles.color = isActive ? new Color(0f, 0f, 0f, 0.7f) : new Color(0f, 0f, 0f, 0.25f);
@@ -398,7 +440,6 @@ public class HijaiyahWriterEditor : Editor
                 Handles.DrawSolidDisc(new Vector3(p.x, p.y, 0), Vector3.forward, r);
         }
 
-        // label nama (biar keliatan semua)
         if (!string.IsNullOrEmpty(s.name) && s.points.Count > 0)
         {
             Handles.color = Color.white;

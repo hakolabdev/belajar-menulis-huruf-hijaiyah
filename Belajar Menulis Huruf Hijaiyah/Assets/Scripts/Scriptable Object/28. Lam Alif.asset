@@ -1,0 +1,38 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0a6e1278db0464e4cb3e708869c1b767, type: 3}
+  m_Name: 28. Lam Alif
+  m_EditorClassIdentifier: 
+  letterName: Lam Alif
+  guideSprite: {fileID: 21300000, guid: 6c7e5bee3eaf32846b1064ed9fd818d8, type: 3}
+  sound: {fileID: 8300000, guid: 271903792bd7f0d46888a68550ab6862, type: 3}
+  strokes:
+  - name: stroke-0
+    points:
+    - {x: 1, y: 2.3}
+    - {x: 1.1, y: 1.3000001}
+    - {x: 1.1, y: 0.4}
+    - {x: 0.90000004, y: -0.4}
+    - {x: 0.4, y: -1.2}
+    - {x: -0.3, y: -2.1000001}
+    - {x: 0.8, y: -2}
+    - {x: 1, y: -1.7}
+    - {x: 0.90000004, y: -1.3000001}
+    - {x: 0.7, y: -0.6}
+    - {x: 0.4, y: -0.2}
+    - {x: 0.1, y: 0.3}
+    - {x: -0.4, y: 0.90000004}
+    - {x: -0.7, y: 1.3000001}
+    - {x: -1.3000001, y: 1.5}
+    tolerance: 0.35
+    startRadius: 0.4
+    endRadius: 0.4

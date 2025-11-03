@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0a6e1278db0464e4cb3e708869c1b767, type: 3}
+  m_Name: 16. Tha
+  m_EditorClassIdentifier: 
+  letterName: Tha
+  guideSprite: {fileID: 21300000, guid: d331d31f0c754934f9e6e622d3a1107a, type: 3}
+  sound: {fileID: 8300000, guid: 421d62e51c00fe14facceef1a098c656, type: 3}
+  strokes:
+  - name: stroke-0
+    points:
+    - {x: -0.6, y: -1.4}
+    - {x: -0, y: -0.5}
+    - {x: 0.5, y: -0}
+    - {x: 1, y: -0}
+    - {x: 1.4, y: -0.3}
+    - {x: 1.5, y: -0.6}
+    - {x: 1.1, y: -1.1}
+    - {x: 0.4, y: -1.3000001}
+    - {x: -1.5, y: -1.4}
+    tolerance: 0.35
+    startRadius: 0.4
+    endRadius: 0.4
+  - name: stroke-1
+    points:
+    - {x: -0.5, y: 1.9}
+    - {x: -0.4, y: 0.4}
+    - {x: -0.4, y: -0.3}
+    - {x: -0.4, y: -0.90000004}
+    tolerance: 0.35
+    startRadius: 0.4
+    endRadius: 0.4

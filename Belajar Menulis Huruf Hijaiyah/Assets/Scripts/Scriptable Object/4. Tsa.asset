@@ -34,20 +34,20 @@ MonoBehaviour:
     points:
     - {x: -0.4, y: 0.7}
     - {x: -0.3, y: 0.7}
-    tolerance: 0.35
+    tolerance: 0.05
     startRadius: 0.4
     endRadius: 0.4
   - name: stroke-2
     points:
     - {x: 0.2, y: 0.7}
     - {x: 0.3, y: 0.7}
-    tolerance: 0.35
+    tolerance: 0.05
     startRadius: 0.4
     endRadius: 0.4
   - name: stroke-3
     points:
     - {x: -0.3, y: 1.4}
     - {x: -0.1, y: 1.4}
-    tolerance: 0.35
+    tolerance: 0.05
     startRadius: 0.4
     endRadius: 0.4
